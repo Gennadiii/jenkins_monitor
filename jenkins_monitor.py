@@ -1,5 +1,6 @@
 # pip install selenium
 # pip install python-jenkins
+# pip install colorama
 
 import json
 import jenkins
@@ -9,15 +10,18 @@ from selenium import webdriver
 from sys import argv, stdout
 from time import sleep, time
 from colorama import init as coloramaInit, Fore, Back, Style
+from base64 import b64decode
 coloramaInit()
 
 config_file = expanduser(r'~\Dropbox\Work\Python\Programms\txt\build_monitor_config.txt')
-jenkins_address = 'http://'
 driver = None
+
 # if not os.path.exists(expanduser(r'~\scripts\build_monitoring')): os.makedirs(expanduser(r'~\scripts\build_monitoring'))
 # config_file = expanduser(r'~\scripts\build_monitoring\build_monitor_config.txt')
 server = None
 build_is_running = False
+jenkins_user = ''
+jenkins_pass = ''
 
 def get_config(config_file=config_file):
     return json.load(open(config_file, 'r'))
@@ -26,7 +30,7 @@ def write_config(new_config, config_file=config_file):
     json.dump(new_config, open(config_file, 'w'))
 
 def server_init(address):
-    return jenkins.Jenkins(address)
+    return jenkins.Jenkins(address, username=jenkins_user, password=jenkins_pass)
 
 def get_job_state(job_name):
     global build_is_running
@@ -57,8 +61,8 @@ def create_config():
         add_job = input('Add job: ')
         if add_job: jobs_init.append(add_job)
     print('Press enter if you wanna leave default settings\n')
-    server = input('Jenkings address: ' + jenkins_address + '\n ')
-    if not server: server = jenkins_address
+    server = input('Jenkings address: jenkins.cadreonint.com\n ')
+    if not server: server = 'http://jenkins.cadreonint.com/'
     open_on_fail = input('open_on_fail: True\n')
     if not open_on_fail: open_on_fail = True
     config = {
@@ -80,14 +84,21 @@ def first_run_init():
     config.pop('jobs_init')
     write_config(config, config_file)
 
+def login_to_jenkins(driver):
+    driver.find_element_by_id('j_username').send_keys(jenkins_user)
+    driver.find_element_by_name('j_password').send_keys(jenkins_pass)
+    driver.find_element_by_id('yui-gen1-button').click()
+
 def open_last_build_link(job_state, status):
     driver = webdriver.Chrome(expanduser(r'~\Dropbox\Work\Python\chromedriver.exe'))
     # driver = webdriver.Firefox()
+    driver.implicitly_wait(10)
     if 'anime' in status:
         build = 1
     else:
         build = 0
     driver.get(job_state['builds'][build]['url'])
+    login_to_jenkins(driver)
     driver.maximize_window()
     driver.implicitly_wait(60*60*24)
     driver.find_element_by_id('not existed element for browser to wait')
@@ -109,7 +120,8 @@ def print_status(job, status, old_status, job_state):
     status_colors = {
         'blue': Fore.GREEN,
         'red': Fore.RED + Style.BRIGHT,
-        'aborted': Fore.YELLOW
+        'yellow': Fore.YELLOW + Style.BRIGHT + ' ',
+        'aborted': Fore.BLUE
     }
     if status != old_status: status_changed = '\tSTATUS CHANGED'
     if build_is_running:
@@ -119,7 +131,7 @@ def print_status(job, status, old_status, job_state):
     if queue_status: illuminate_pending_build = Back.BLUE
 
     print(status_colors[status] + dim_if_acknowledged + illuminate_running_build + illuminate_pending_build + 
-        job['name'] + ':' + ' '*(40 - len(job['name'])) + status + status_changed + build_run_info + queue_status + 
+        job['name'] + ' '*(65 - len(job['name'])) + status + status_changed + build_run_info + queue_status + 
         Style.RESET_ALL)
 
 def check_jobs(config):
@@ -132,7 +144,7 @@ def check_jobs(config):
         print_status(job, status, old_status, job_state)
         if config['open_on_fail'] and status == 'red' and not job['acknowledged']:
             try: open_last_build_link(job_state, status)
-            except: pass
+            except Exception as err: print("Couldn't open link: " + str(err))
             acknowledge = input('Понять и простить (y/n)? : ')
             if acknowledge == 'y' or len(acknowledge) == 0:
                 job['acknowledged'] = True
@@ -286,10 +298,15 @@ def print_help():
     print('''
 Config example:
 {
-  "server": ''' + jenkins_address + ''',
+  "server": "http://hcde360:8081",
   "open_on_fail": "True",
   "jobs_init": [
-    "some-trunk"
+    "vos_app_uplink-trunk",
+    "vos_app_stream_generator-trunk",
+    "vos_test_productivity-trunk",
+    "vos_app_cloudlink-trunk",
+    "vos_app_downlink-trunk",
+    "vos_app_ecd-trunk"
   ]
 }
 open_on_fail flag will open browser with failed build.
